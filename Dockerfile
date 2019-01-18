@@ -1,10 +1,8 @@
-FROM java:8
-EXPOSE 8080
+FROM anapsix/alpine-java
 
-ENV TOPIC_PREFIX="unihook"
-ENV PORT=8888
+ENV PORT=3000
 ENV BOOTSTRAP_SERVER=localhost:9092
 
 ADD target/app.jar /app.jar
 
-CMD java -cp /app.jar clojure.main -m unihook.core
+CMD java -jar /app.jar -m unihook.core

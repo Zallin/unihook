@@ -1,0 +1,10 @@
+{:paths ["src"]
+
+ :deps
+ {org.clojure/clojure {:mvn/version "1.10.0-alpha4"}
+  spootnik/kinsky {:mvn/version "0.1.23"}
+  cheshire {:mvn/version "5.8.1"}
+  http-kit {:mvn/version "2.3.0"}
+  tools
+  {:git/url "https://github.com/Zallin/tools"
+   :sha "86ed76c04ccc8389082d996396ac50d0bd617117"}}}

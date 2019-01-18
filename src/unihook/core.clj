@@ -1,44 +1,35 @@
 (ns unihook.core
-  (:require [cheshire.core :as json]
-            [org.httpkit.server :as http-kit]
-            [clojure.string :as str])
-  (:import org.apache.kafka.clients.consumer.KafkaConsumer
-           [org.apache.kafka.clients.producer KafkaProducer ProducerRecord]
-           [org.apache.kafka.common.serialization ByteArrayDeserializer ByteArraySerializer])
-  (:gen-class))
+  (:require
+   [tools.config :as cfg]
+   [cheshire.core :as json]
+   [org.httpkit.server :as http-kit]
+   [clojure.string :as str]
+   [kinsky.client :as client]))
 
-(def bootstrap-server (or (System/getenv "BOOTSTRAP_SERVER") "localhost:9092"))
+(def cfg (cfg/*get
+          {:port {:default "8888" :parse-fn #(Integer/parseInt %)}
+           :bootstrap-server {:required true}}))
 
-(defonce *producer (atom nil))
-
-(def p-cfg {"value.serializer" ByteArraySerializer
-            "key.serializer" ByteArraySerializer
-            "bootstrap.servers" bootstrap-server})
-
-(defn get-producer [cfg]
-  (if-let [p @*producer]
-    p (reset! *producer (KafkaProducer. cfg))))
-
-(defn kafka-send [topic payload]
-  (.send (get-producer p-cfg)
-         (ProducerRecord. topic (.getBytes (json/generate-string payload)))))
-
-(def prefix (str/lower-case (or (System/getenv "TOPIC_PREFIX") "unihook")))
+(defonce *producer
+  (client/producer {:bootstrap.servers (:bootstrap-server cfg)}
+                   (client/keyword-serializer)
+                   (client/edn-serializer)))
 
 (defn sanitize [x]
   (str/replace x #"[^0-9a-zA-Z]+" "_"))
 
 (defn handle [{body :body :as req}]
-  (let [topic (str prefix (sanitize (:uri req)))]
-    (println "Send to " topic)
-    (kafka-send topic 
-                (cond-> (-> req
-                            (dissoc :async-channel)
-                            (assoc :ts (java.util.Date.)))
-                  body (assoc :body (slurp body)))))
-  {:status 200
-   :headers {"Content-Type" "text/xml"}
-   :body "<Response></Response>"})
+  (let [topic (str "unihook" (sanitize (:uri req)))
+        msg (cond-> (-> req
+                        (dissoc :async-channel)
+                        (assoc :ts (java.util.Date.)))
+              body (assoc :body (slurp body)))
+        msg-key (str (java.util.UUID/randomUUID))]
+    (client/send! *producer topic msg-key msg)
+    (println (str "Send to " topic " msg " msg-key))
+    {:status 200
+     :headers {"Content-Type" "text/xml"}
+     :body "<Response>Message sent</Response>"}))
 
 (defonce server (atom nil))
 
@@ -49,23 +40,10 @@
     (reset! server nil)))
 
 (defn restart []
-  (stop)
-  (let [p (or (Integer/parseInt (System/getenv "PORT")) "8888")]
-    (println "Start server on " p " with kafka " bootstrap-server)
+  (let [{p :port bs :bootstrap-server} cfg]
+    (stop)
+    (println "Start server on " p " with kafka " bs)
     (reset! server (http-kit/run-server #(handle %) {:port p}))))
-
 
 (defn -main [& args]
   (restart))
-
-(comment
-  (restart)
-  (stop)
-
-  @server
-
-  (kafka-send "test_topic" {:message "Hello again 222"
-                           :revision 2
-                           :date (str (java.util.Date. ))})
-
-  )
